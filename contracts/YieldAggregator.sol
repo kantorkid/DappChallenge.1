@@ -1,103 +1,55 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+// Import necessary dependencies and interfaces
 
 contract YieldAggregator {
-    using SafeERC20 for IERC20;
-
-    address public compoundAddress; // Address of the Compound contract
-    address public aaveAddress; // Address of the Aave contract
-
-    IERC20 public wethToken; // ERC20 token used (WETH)
-
-    constructor(address _compoundAddress, address _aaveAddress, address _wethToken) {
-        compoundAddress = _compoundAddress;
-        aaveAddress = _aaveAddress;
-        wethToken = IERC20(_wethToken);
+    address public compoundContract; // Address of Compound V3 contract
+    address public aaveContract; // Address of Aave V3 contract
+    
+    // Other state variables and mappings
+    
+    constructor(address _compoundContract, address _aaveContract) {
+        compoundContract = _compoundContract;
+        aaveContract = _aaveContract;
     }
-
+    
+    // Deposit user funds into either Compound or Aave depending on higher APY
     function deposit(uint256 amount) external {
-        require(amount > 0, "Amount must be greater than zero");
-
-        // Approve transfer of WETH to both Compound and Aave contracts
-        wethToken.safeApprove(compoundAddress, amount);
-        wethToken.safeApprove(aaveAddress, amount);
-
-        // Get the current APY rates of Compound and Aave
-        uint256 compoundAPY = getCompoundAPY();
-        uint256 aaveAPY = getAaveAPY();
-
-        if (compoundAPY >= aaveAPY) {
-            // Deposit WETH into Compound
-            compoundDeposit(amount);
+        // Calculate APY for Compound and Aave
+        // Determine which platform has a higher APY
+        
+        // Deposit funds into the platform with a higher APY
+        if (compoundHasHigherAPY) {
+            // Deposit into Compound
+            // Update necessary state variables
         } else {
-            // Deposit WETH into Aave
-            aaveDeposit(amount);
+            // Deposit into Aave
+            // Update necessary state variables
         }
+        
+        // Emit event
     }
-
+    
+    // Withdraw funds from one platform to another if the APY is higher on the other platform
     function rebalance() external {
-        // Get the current APY rates of Compound and Aave
-        uint256 compoundAPY = getCompoundAPY();
-        uint256 aaveAPY = getAaveAPY();
-
-        if (compoundAPY > aaveAPY) {
-            // Withdraw from Aave and deposit into Compound
-            uint256 aaveBalance = getAaveBalance();
-            aaveWithdraw(aaveBalance);
-            compoundDeposit(aaveBalance);
-        } else if (aaveAPY > compoundAPY) {
-            // Withdraw from Compound and deposit into Aave
-            uint256 compoundBalance = getCompoundBalance();
-            compoundWithdraw(compoundBalance);
-            aaveDeposit(compoundBalance);
-        }
+        // Check if rebalancing is necessary (based on APY)
+        
+        // If rebalancing is required, withdraw funds from the platform with a lower APY
+        // and deposit into the platform with a higher APY
+        
+        // Update necessary state variables
+        
+        // Emit event
     }
-
+    
+    // Withdraw user funds from either Compound or Aave and return to their account
     function withdraw(uint256 amount) external {
-        require(amount > 0, "Amount must be greater than zero");
-
-        uint256 compoundBalance = getCompoundBalance();
-        uint256 aaveBalance = getAaveBalance();
-
-        if (amount <= compoundBalance) {
-            // Withdraw from Compound
-            compoundWithdraw(amount);
-        } else if (amount <= compoundBalance + aaveBalance) {
-            // Withdraw from Aave
-            aaveWithdraw(amount - compoundBalance);
-        } else {
-            revert("Insufficient funds");
-        }
+        // Check from which platform the user wants to withdraw
+        
+        // Withdraw funds from the selected platform
+        
+        // Update necessary state variables
+        
+        // Emit event
     }
-
-    // Helper functions for interacting with Compound and Aave contracts
-    function compoundDeposit(uint256 amount) internal {
-        // Implement the deposit logic for Compound
-        // ...
-    }
-
-    function compoundWithdraw(uint256 amount) internal {
-        // Implement the withdrawal logic for Compound
-        // ...
-    }
-
-    function aaveDeposit(uint256 amount) internal {
-        // Implement the deposit logic for Aave
-        // ...
-    }
-
-    function aaveWithdraw(uint256 amount) internal {
-        // Implement the withdrawal logic for Aave
-        // ...
-    }
-
-    // Helper functions to get APY rates
-    function getCompoundAPY() internal view returns (uint256) {
-        // Implement the logic to get the APY rate from Compound
-        // ...
-    }
-
-    function getAaveAP
+    
+    // Other helper functions and event declarations
+}
