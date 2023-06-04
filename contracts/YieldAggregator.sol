@@ -1,3 +1,7 @@
+
+////////////////// 1
+
+
 // Import necessary dependencies and interfaces
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 import { Pool } from "aave-v3-core/contracts/protocol/pool/Pool.sol";
@@ -58,6 +62,8 @@ contract YieldAggregator {
 
 
 
+
+///////////////// 2
 
 
 
@@ -155,7 +161,7 @@ contract YieldAggregator {
 
 
 
-
+//////////////////// 3
 
 
 
@@ -267,4 +273,73 @@ contract YieldAggregator {
 
 
 
+////////////////////// 4
 
+
+
+pragma solidity ^0.5.16;
+
+contract Aggregator {
+    // Variables
+    string public name = "Dapp University Challenge";
+    address public owner;
+    address public locationOfFunds; // Keep track of where the user balance is stored
+    uint256 public amountDeposited;
+
+    // TODO: Define the addresses for ETH, cETH, and Aave Lending Pool
+
+    // Events
+    event Deposit(address owner, uint256 amount, address depositTo);
+    event Withdraw(address owner, uint256 amount, address withdrawFrom);
+    event Rebalance(address owner, uint256 amount, address depositTo);
+
+    modifier onlyOwner() {
+        // TODO: Implement the onlyOwner modifier
+        _;
+    }
+
+    // Constructor
+    constructor() public {
+        owner = msg.sender;
+    }
+
+    // Functions
+
+    function deposit(
+        uint256 _amount,
+        uint256 _compAPY,
+        uint256 _aaveAPY
+    ) public onlyOwner {
+        // TODO: Implement the deposit function
+
+        // Emit Deposit event
+        emit Deposit(msg.sender, _amount, locationOfFunds);
+    }
+
+    function withdraw() public onlyOwner {
+        // TODO: Implement the withdraw function
+
+        // Emit Withdraw event
+        emit Withdraw(msg.sender, amountDeposited, locationOfFunds);
+
+        // Reset user balance
+        amountDeposited = 0;
+    }
+
+    function rebalance(uint256 _compAPY, uint256 _aaveAPY) public onlyOwner {
+        // TODO: Implement the rebalance function
+
+        // Emit Rebalance event
+        emit Rebalance(msg.sender, amountDeposited, locationOfFunds);
+    }
+
+    // ---
+
+    function balanceOfContract() public view returns (uint256) {
+        // TODO: Implement the balanceOfContract function
+    }
+
+    function balanceWhere() public view returns (address) {
+        return locationOfFunds;
+    }
+}
