@@ -343,3 +343,106 @@ contract Aggregator {
         return locationOfFunds;
     }
 }
+
+
+
+
+
+///////////////// 5
+
+
+
+
+pragma solidity ^0.5.16;
+
+import "openzeppelin-solidity/contracts/math/SafeMath.sol";
+import { Pool } from "aave-v3-core/contracts/protocol/pool/Pool.sol";
+
+contract YieldAggregator {
+    using SafeMath for uint256;
+
+    string public name = "Dapp University Challenge";
+    address public owner;
+    address public locationOfFunds;
+    uint256 public amountDeposited;
+    address public compoundContract;
+    address public aaveContract = 0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9;
+
+    event Deposit(address indexed owner, uint256 amount, address indexed depositTo);
+    event Withdraw(address indexed owner, uint256 amount, address indexed withdrawFrom);
+    event Rebalance(address indexed owner, uint256 amount, address indexed depositTo);
+
+    constructor(address _compoundContract) public {
+        owner = msg.sender;
+        compoundContract = _compoundContract;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only the owner can call this function");
+        _;
+    }
+
+    function deposit(uint256 _amount, uint256 _compAPY, uint256 _aaveAPY) public onlyOwner {
+        require(_amount > 0, "Deposit amount must be greater than zero");
+
+        // Calculate APY for Compound and Aave
+        // Determine which platform has a higher APY
+        bool compoundHasHigherAPY = _compAPY > _aaveAPY;
+
+        // Deposit funds into the platform with a higher APY
+        if (compoundHasHigherAPY) {
+            // Deposit into Compound
+            // Update necessary state variables
+            // ...
+
+            // Emit Deposit event
+            emit Deposit(msg.sender, _amount, locationOfFunds);
+        } else {
+            // Deposit into Aave
+            // Update necessary state variables
+            // ...
+
+            // Emit Deposit event
+            emit Deposit(msg.sender, _amount, locationOfFunds);
+        }
+    }
+
+    function withdraw() public onlyOwner {
+        require(amountDeposited > 0, "No funds available for withdrawal");
+
+        // Withdraw funds from the selected platform
+        // Update necessary state variables
+        // ...
+
+        // Emit Withdraw event
+        emit Withdraw(msg.sender, amountDeposited, locationOfFunds);
+
+        // Reset user balance
+        amountDeposited = 0;
+    }
+
+    function rebalance(uint256 _compAPY, uint256 _aaveAPY) public onlyOwner {
+        require(amountDeposited > 0, "No funds available for rebalance");
+
+        // Check if rebalancing is necessary (based on APY)
+        bool compoundHasHigherAPY = _compAPY > _aaveAPY;
+        if ((compoundHasHigherAPY && locationOfFunds != compoundContract) ||
+            (!compoundHasHigherAPY && locationOfFunds != aaveContract)) {
+            // If rebalancing is required, withdraw funds from the platform with a lower APY
+            // and deposit into the platform with a higher APY
+            // Update necessary state variables
+            // ...
+
+            // Emit Rebalance event
+            emit Rebalance(msg.sender, amountDeposited, locationOfFunds);
+        }
+    }
+
+    function balanceOfContract() public view returns (uint256) {
+        // TODO: Implement the balanceOfContract function
+    }
+
+    function balanceWhere() public view returns (address) {
+        return locationOfFunds;
+    }
+}
