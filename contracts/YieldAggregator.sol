@@ -370,7 +370,7 @@ contract YieldAggregator is Ownable {
 
     mapping(address => uint256) public deposits;
 
-    uint256 public slippage; // Set a slippage rate, this could be set in the constructor
+    uint256 public slippage;
 
     constructor(
         address _wethAddress, 
@@ -407,8 +407,26 @@ contract YieldAggregator is Ownable {
         weth.transfer(msg.sender, _amount);
     }
 
+     // Rebalance
     function rebalance() external onlyOwner {
-        // Implement the rebalance logic here
+        uint256 totalFunds = weth.balanceOf(address(this));
+        if (getAaveLiquidityRate() > getCompoundSupplyRate()) {
+            compound.claimComp(address(this));
+            compound.redeemUnderlying(totalFunds);
+            weth.approve(address(aave), totalFunds);
+            aave.deposit(address(weth), totalFunds, address(this), 0);
+        } else {
+            address[] memory users = new address[](1);
+            users[0] = address(this);
+            aave.claimRewards(users, type(uint256).max, address(this));
+            aave.withdraw(address(weth), totalFunds, address(this));
+            weth.approve(address(compound), totalFunds);
+            compound.mint(totalFunds);
+        }
+    }
+
+    function setSlippage(uint256 _slippage) external onlyOwner {
+        slippage = _slippage;
     }
 
     function getAaveLiquidityRate() public view returns (uint256) {
