@@ -37,16 +37,17 @@ interface ICompound {
 
 contract YieldAggregator {
     
-    //Instances
+    //Instances//
     IERC20 public weth;    // Instance of WETH contract
     IAave public aave;    // Instance of Aave contract
     ICompound public compound;    // Instance of Compound contract
 
 
-    // Mapping
+    //Mapping//
     mapping(address => uint256) public deposits;    // Mapping to track user deposits
 
 
+    //Constructor//
     constructor(
         address _wethAddress, 
         address _aaveAddress, 
@@ -56,6 +57,9 @@ contract YieldAggregator {
         aave = IAave(_aaveAddress);
         compound = ICompound(_compoundAddress);
     }
+
+    
+    //Functions//
 
     function deposit(uint256 _amount) external {
         // Transfer WETH from the user to this contract
@@ -80,7 +84,45 @@ contract YieldAggregator {
         }
     }
 
-    // Implement other functions...
+    function rebalance() external {
+        if (getAaveLiquidityRate() > getCompoundSupplyRate()) {
+            // Withdraw from Compound
+            compound.redeem(compound.balanceOf(address(this)));
+
+            // Approve and deposit to Aave
+            uint256 balance = weth.balanceOf(address(this));
+            weth.approve(address(aave), balance);
+            aave.deposit(address(weth), balance, address(this), 0);
+        } else {
+            // Withdraw from Aave
+            uint256 balance = getAaveBalance();
+            aave.withdraw(address(weth), balance, address(this));
+
+            // Approve and deposit to Compound
+            balance = weth.balanceOf(address(this));
+            weth.approve(address(compound), balance);
+            compound.mint(balance);
+        }
+    }
+
+    function withdraw(uint256 _amount) external {
+        require(deposits[msg.sender] >= _amount, "Withdraw amount exceeds deposit");
+
+        if (getAaveBalance() > 0) {
+            // Withdraw from Aave
+            aave.withdraw(address(weth), _amount, address(this));
+        } else {
+            // Withdraw from Compound
+            uint256 cTokenAmount = _amount.mul(1e18).div(compound.exchangeRateCurrent());
+            compound.redeem(cTokenAmount);
+        }
+
+        // Transfer WETH to user
+        weth.transfer(msg.sender, _amount);
+
+        // Update user deposit amount
+        deposits[msg.sender] -= _amount;
+    }
 
     function getAaveLiquidityRate() public view returns (uint256) {
         (,,,,,,,bool isActive,,,,,,,) = aave.getReserveData(address(weth));
@@ -90,5 +132,14 @@ contract YieldAggregator {
 
     function getCompoundSupplyRate() public view returns (uint256) {
         return compound.supplyRatePerBlock();
+    }
+
+    function getAaveBalance() public view returns (uint256) {
+        IERC20 aToken = IERC20(aave.getReserveData(address(weth)).aTokenAddress);
+        return aToken.balanceOf(address(this));
+    }
+
+    function getCompoundBalance() public view returns (uint256) {
+        return compound.balanceOfUnderlying(address(this));
     }
 }
