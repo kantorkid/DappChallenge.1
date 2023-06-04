@@ -3,70 +3,92 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-// Define interfaces for Aave and Compound
+// Define interface for Aave
 interface IAave {
     function deposit(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function withdraw(address asset, uint256 amount, address to) external;
-    // Add methods to get APY etc
+    function getReserveData(address asset) external view returns (
+        uint256 ltv,
+        uint256 liquidationThreshold,
+        uint256 liquidationBonus,
+        uint256 reserveFactor,
+        uint256 usageAsCollateralEnabled,
+        uint256 borrowingEnabled,
+        uint256 stableBorrowRateEnabled,
+        uint256 isActive,
+        uint256 isFrozen,
+        uint256 WETH,
+        uint256 aTokenAddress,
+        uint256 stableDebtTokenAddress,
+        uint256 variableDebtTokenAddress,
+        uint256 interestRateStrategyAddress,
+        uint256 id
+    );
 }
 
+// Define interface for Compound
 interface ICompound {
     function mint(uint mintAmount) external returns (uint);
     function redeem(uint redeemTokens) external returns (uint);
-    // Add methods to get APY etc
+    function exchangeRateCurrent() external returns (uint);
+    function supplyRatePerBlock() external returns (uint);
+    function balanceOf(address owner) external view returns (uint);
 }
 
 contract YieldAggregator {
-    IERC20 public weth;
-    IAave public aave;
-    ICompound public compound;
-    address public owner;
-    uint256 public totalDeposits;
+    
+    //Instances
+    IERC20 public weth;    // Instance of WETH contract
+    IAave public aave;    // Instance of Aave contract
+    ICompound public compound;    // Instance of Compound contract
 
-    enum Protocol { None, Aave, Compound }
-    Protocol public currentProtocol = Protocol.None;
 
-    constructor(address _weth, address _aave, address _compound) {
-        weth = IERC20(_weth);
-        aave = IAave(_aave);
-        compound = ICompound(_compound);
-        owner = msg.sender;
+    // Mapping
+    mapping(address => uint256) public deposits;    // Mapping to track user deposits
+
+
+    constructor(
+        address _wethAddress, 
+        address _aaveAddress, 
+        address _compoundAddress
+    ) {
+        weth = IERC20(_wethAddress);
+        aave = IAave(_aaveAddress);
+        compound = ICompound(_compoundAddress);
     }
 
-    function deposit(uint256 _amount) public {
-        // First transfer WETH from the user to this contract
+    function deposit(uint256 _amount) external {
+        // Transfer WETH from the user to this contract
         weth.transferFrom(msg.sender, address(this), _amount);
-        totalDeposits += _amount;
 
-        // Decide whether to use Aave or Compound depending on APY
-        // TODO: Implement getAaveAPY() and getCompoundAPY() methods
-        if (getAaveAPY() > getCompoundAPY()) {
+        // Update user deposit amount
+        deposits[msg.sender] += _amount;
+
+        // Decide where to deposit based on current rates
+        if (getAaveLiquidityRate() > getCompoundSupplyRate()) {
+            // Approve the Aave LendingPool contract to spend WETH on behalf of this contract
+            weth.approve(address(aave), _amount);
+
+            // Deposit WETH into Aave
             aave.deposit(address(weth), _amount, address(this), 0);
-            currentProtocol = Protocol.Aave;
         } else {
-            // For Compound, we first approve the transfer
+            // Approve the Compound contract to spend WETH on behalf of this contract
             weth.approve(address(compound), _amount);
+
+            // Deposit WETH into Compound
             compound.mint(_amount);
-            currentProtocol = Protocol.Compound;
         }
     }
 
-    function rebalance() public {
-        // TODO: Implement this
+    // Implement other functions...
+
+    function getAaveLiquidityRate() public view returns (uint256) {
+        (,,,,,,,bool isActive,,,,,,,) = aave.getReserveData(address(weth));
+        require(isActive, "Reserve is not active on Aave");
+        return aave.getReserveData(address(weth)).liquidityRate;
     }
 
-    function withdraw(uint256 _amount) public {
-        // TODO: Implement this
-    }
-
-    // Helper functions to get APY for Aave and Compound
-    function getAaveAPY() public view returns (uint256) {
-        // TODO: Implement this
-        return 0;
-    }
-
-    function getCompoundAPY() public view returns (uint256) {
-        // TODO: Implement this
-        return 0;
+    function getCompoundSupplyRate() public view returns (uint256) {
+        return compound.supplyRatePerBlock();
     }
 }
