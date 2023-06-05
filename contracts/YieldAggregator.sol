@@ -368,9 +368,12 @@ contract YieldAggregator is Ownable {
     IAave public aave;
     ICompound public compound;
 
-    mapping(address => uint256) public deposits;
+    // Mapping
+    mapping(address => uint256) public deposits;    // Mapping to track user deposits
+    mapping(address => bool) public fundsLocation;  // Mapping to track the location of funds (true for Aave, false for Compound)
 
-    uint256 public slippage;
+    // other variables...
+    uint public slippage = 1; // 1%
 
     constructor(
         address _wethAddress, 
@@ -439,3 +442,136 @@ contract YieldAggregator is Ownable {
         return compound.supplyRatePerBlock();
     }
 }
+
+
+
+
+
+///////////////////////////////////
+
+
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+interface IAave {
+    function deposit(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+    function withdraw(address asset, uint256 amount, address to) external;
+    function getReserveData(address asset) external view returns (
+        uint256 ltv,
+        uint256 liquidationThreshold,
+        uint256 liquidationBonus,
+        uint256 reserveFactor,
+        uint256 usageAsCollateralEnabled,
+        uint256 borrowingEnabled,
+        uint256 stableBorrowRateEnabled,
+        uint256 isActive,
+        uint256 isFrozen
+    );
+}
+
+interface ICompound {
+    function supplyRatePerBlock() external returns (uint);
+}
+
+interface ICERC20 is IERC20 {
+    function mint(uint mintAmount) external returns (uint);
+    function redeem(uint redeemTokens) external returns (uint);
+    function redeemUnderlying(uint redeemAmount) external returns (uint);
+    function exchangeRateCurrent() external returns (uint);
+}
+
+contract YieldAggregator is Ownable {
+    
+    IERC20 public weth;
+    IAave public aave;
+    ICERC20 public cweth;
+
+    // Mapping
+    mapping(address => uint256) public deposits;    // Mapping to track user deposits
+    mapping(address => bool) public fundsLocation;  // Mapping to track the location of funds (true for Aave, false for Compound)
+
+    // other variables...
+    uint public slippage = 1; // 1%
+
+    constructor(
+        address _wethAddress, 
+        address _aaveAddress, 
+        address _cwethAddress,
+        uint256 _slippage
+    ) {
+        weth = IERC20(_wethAddress);
+        aave = IAave(_aaveAddress);
+        cweth = ICERC20(_cwethAddress);
+        slippage = _slippage;
+    }
+
+    function deposit(uint256 _amount) external {
+        weth.transferFrom(msg.sender, address(this), _amount);
+        deposits[msg.sender] += _amount;
+        if (getAaveLiquidityRate() > getCompoundSupplyRate()) {
+            weth.approve(address(aave), _amount);
+            aave.deposit(address(weth), _amount, address(this), 0);
+            fundsLocation[msg.sender] = true;
+        } else {
+            weth.approve(address(cweth), _amount);
+            cweth.mint(_amount);
+            fundsLocation[msg.sender] = false;
+        }
+    }
+
+    function withdraw(uint256 _amount) external {
+        require(deposits[msg.sender] >= _amount, "Not enough balance");
+        deposits[msg.sender] -= _amount;
+        uint256 balanceBefore = weth.balanceOf(address(this));
+
+        if (fundsLocation[msg.sender]) {
+            aave.withdraw(address(weth), _amount, address(this));
+        } else {
+            cweth.redeemUnderlying(_amount);
+        }
+
+        uint256 balanceAfter = weth.balanceOf(address(this));
+        uint256 diff = balanceAfter - balanceBefore;
+        require(diff >= _amount * (1 - slippage / 100), "Too much slippage");
+        weth.transfer(msg.sender, _amount);
+    }
+
+
+     // Rebalance
+    function rebalance() external onlyOwner {
+        uint256 totalFunds = weth.balanceOf(address(this));
+        if (getAaveLiquidityRate() > getCompoundSupplyRate()) {
+            compound.claimComp(address(this));
+            compound.redeemUnderlying(totalFunds);
+            weth.approve(address(aave), totalFunds);
+            aave.deposit(address(weth), totalFunds, address(this), 0);
+        } else {
+            address[] memory users = new address[](1);
+            users[0] = address(this);
+            aave.claimRewards(users, type(uint256).max, address(this));
+            aave.withdraw(address(weth), totalFunds, address(this));
+            weth.approve(address(compound), totalFunds);
+            compound.mint(totalFunds);
+        }
+    }
+
+    function setSlippage(uint256 _slippage) external onlyOwner {
+        slippage = _slippage;
+    }
+
+    
+    function getAaveLiquidityRate() public view returns (uint256) {
+        (,,,,,,,bool isActive,,,,,,,) = aave.getReserveData(address(weth));
+        require(isActive, "Reserve is not active on Aave");
+        return aave.getReserveData(address(weth)).liquidityRate;
+    }
+
+    function getCompoundSupplyRate() public view returns (uint256) {
+        return cweth.supplyRatePerBlock();
+    }
+}
+
+
