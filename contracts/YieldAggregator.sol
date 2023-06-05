@@ -1,152 +1,167 @@
-// Import the necessary libraries and modules
-const { ethers } = require("hardhat");
-const { expect } = require("chai");
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.4;
 
-// Describe the test suite
-describe('AssetManager', function() {
-  // Declare the variables we will use throughout the test
-  let AssetManager, WETH, CWETH, AWETH, LendingPool, owner, nonOwner, manager, weth, cWeth, aWeth, pool;
-  // Set the amount of tokens to be minted and approved
-  const amount = ethers.utils.parseEther("1");
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-  // Run setup before each test
-  beforeEach(async function() {
-    // Get list of signers
-    [owner, nonOwner, ...accounts] = await ethers.getSigners();
 
-    // Get the contract factories for each contract
-    AssetManager = await ethers.getContractFactory('AssetManager');
-    WETH = await ethers.getContractFactory('WETH');
-    CWETH = await ethers.getContractFactory('CWETH');
-    AWETH = await ethers.getContractFactory('AWETH');
-    LendingPool = await ethers.getContractFactory('LendingPool');
+// Interface for WETH
+interface Token {
+    function approve(address, uint256) external returns (bool);
+    function transfer(address, uint256) external returns (bool);
+    function transferFrom(address, address, uint256) external returns (bool);
+    function balanceOf(address) external view returns (uint256);
+}
 
-    // Deploy each contract
-    weth = await WETH.deploy();
-    await weth.deployed();
-    
-    cWeth = await CWETH.deploy();
-    await cWeth.deployed();
-    
-    aWeth = await AWETH.deploy();
-    await aWeth.deployed();
-    
-    pool = await LendingPool.deploy();
-    await pool.deployed();
+// Interface for Compound's cWETH
+interface cToken {
+    function mint(uint256) external returns (uint256);
+    function redeem(uint256) external returns (uint256);
+    function supplyRatePerBlock() external returns (uint256);
+    function balanceOf(address) external view returns (uint256);
+}
 
-    // Deploy the manager contract with the addresses of the other contracts as parameters
-    manager = await AssetManager.deploy(weth.address, cWeth.address, aWeth.address, pool.address);
-    await manager.deployed();
+// Interface for Aave's aWETH
+interface aToken {
+    function balanceOf(address) external view returns (uint256);
+}
 
-    // Mint tokens and approve the manager to spend them
-    await weth.mint(owner.address, amount);
-    await weth.connect(owner).approve(manager.address, amount);
-  });
+// Interface for Aave's LendingPool
+interface LendingPool {
+    function deposit(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+    function withdraw(address asset, uint256 amount, address to) external;
+    function getReserveData(address asset) external returns (
+        uint256, uint128, uint128, uint128, uint128, uint128, uint40, address, address, address, address, uint8);
+}
 
-  // Test that assets can be deposited into Compound
-  it('should deposit assets to Compound', async function() {
-    const compoundRate = 3;
-    const aaveRate = 2;
+contract AssetManager is ReentrancyGuard {
+    string public contractAlias = "AssetManager";
+    address public admin;
+    address public assetLocation;
+    uint256 public depositValue;
 
-    // Call the depositAsset function
-    await manager.connect(owner).depositAsset(amount, compoundRate, aaveRate);
+    IERC20 public weth;
+    cToken public cWeth;
+    aToken public aWeth;
+    LendingPool public pool;
 
-    // Check that the contract balance is correct
-    const contractBalance = await manager.contractBalance();
-    expect(contractBalance).to.equal(amount);
-  });
+    event AssetDeposited(address indexed assetHolder, uint256 amount, address indexed recipient);
+    event AssetWithdrawn(address indexed assetHolder, uint256 amount, address indexed source);
+    event AssetRebalanced(address indexed assetHolder, uint256 amount, address indexed recipient);
 
-  // Test that assets can be withdrawn from Compound
-  it('should withdraw assets from Compound', async function() {
-    const compoundRate = 3;
-    const aaveRate = 2;
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Access denied");
+        _;
+    }
 
-    // Call the depositAsset and withdrawAsset functions
-    await manager.connect(owner).depositAsset(amount, compoundRate, aaveRate);
-    await manager.connect(owner).withdrawAsset();
+    constructor(
+        address _wethAddress,
+        address _cWethAddress,
+        address _aWethAddress,
+        address _poolAddress
+    ) {
+        admin = msg.sender;
+        weth = IERC20(_wethAddress);
+        cWeth = cToken(_cWethAddress);
+        aWeth = aToken(_aWethAddress);
+        pool = LendingPool(_poolAddress);
+    }
 
-    // Check that the contract balance is 0
-    const contractBalance = await manager.contractBalance();
-    expect(contractBalance).to.equal(0);
-  });
+// Main Functions
+    function depositAsset(uint256 _amount, uint256 _compoundRate, uint256 _aaveRate) public onlyAdmin {
+        require(_amount > 0);
 
-  // Test that assets can be rebalanced from Compound to Aave
-  it('should rebalance from Compound to Aave', async function() {
-    const compoundRate1 = 3;
-    const aaveRate1 = 2;
-    const compoundRate2 = 2;
-    const aaveRate2 = 3;
+        // Rebalance assets if necessary
+        if (depositValue > 0) {
+            rebalanceAsset(_compoundRate, _aaveRate);
+        }
 
-    // Call the depositAsset and rebalanceAsset functions
-    await manager.connect(owner).depositAsset(amount, compoundRate1, aaveRate1);
-    await manager.connect(owner).rebalanceAsset(compoundRate2, aaveRate2);
+        // Transfer the assets to this contract and update the total deposit value
+        weth.transferFrom(msg.sender, address(this), _amount);
+        depositValue = depositValue + _amount;
 
-    // Check that the assets are stored in the correct location
-    const location = await manager.assetStorageLocation();
-    expect(location).to.equal(pool.address);
-  });
+        // Decide where to deposit the assets based on the rates provided
+        if (_compoundRate > _aaveRate) {
+            require(depositToCompound(_amount) == 0);
+            assetLocation = address(cWeth);
+        } else {
+            depositToAave(_amount);
+            assetLocation = address(pool);
+        }
 
-  // Test that assets can be rebalanced from Aave to Compound
-  it('should rebalance from Aave to Compound', async function() {
-    const compoundRate1 = 2;
-    const aaveRate1 = 3;
-    const compoundRate2 = 3;
-    const aaveRate2 = 2;
+        // Emit an event
+        emit AssetDeposited(msg.sender, _amount, assetLocation);
+    }
 
-    // Call the depositAsset and rebalanceAsset functions
-    await manager.connect(owner).depositAsset(amount, compoundRate1, aaveRate1);
-    await manager.connect(owner).rebalanceAsset(compoundRate2, aaveRate2);
+    function withdrawAsset() public onlyAdmin {
+        require(depositValue > 0);
 
-    // Check that the assets are stored in the correct location
-    const location = await manager.assetStorageLocation();
-    expect(location).to.equal(cWeth.address);
-  });
+        // Withdraw from the correct location
+        if (assetLocation == address(cWeth)) {
+            require(withdrawFromCompound() == 0);
+        } else {
+            withdrawFromAave();
+        }
 
-  // Test that non-admins cannot deposit assets
-  it('should fail to deposit if not called by admin', async function() {
-    const compoundRate = 3;
-    const aaveRate = 2;
+        // Transfer the assets back to the admin
+        uint256 balance = weth.balanceOf(address(this));
+        weth.transfer(msg.sender, balance);
+        emit AssetWithdrawn(msg.sender, depositValue, assetLocation);
+        depositValue = 0;
+    }
 
-    // Call the depositAsset function from a non-admin account and check for a revert
-    await expect(manager.connect(nonOwner).depositAsset(amount, compoundRate, aaveRate)).to.be.revertedWith("Access denied");
-  });
+    function rebalanceAsset(uint256 _compoundRate, uint256 _aaveRate) public onlyAdmin {
+        require(depositValue > 0);
+        uint256 balance;
+        if ((_compoundRate > _aaveRate) && (assetLocation != address(cWeth))) {
+            withdrawFromAave();
+            balance = weth.balanceOf(address(this));
+            depositToCompound(balance);
+            assetLocation = address(cWeth);
+            emit AssetRebalanced(msg.sender, depositValue, assetLocation);
+        } else if ((_aaveRate > _compoundRate) && (assetLocation != address(pool))) {
+            withdrawFromCompound();
+            balance = weth.balanceOf(address(this));
+            depositToAave(balance);
+            assetLocation = address(pool);
+            emit AssetRebalanced(msg.sender, depositValue, assetLocation);
+        }
+    }
 
-  // Test that non-admins cannot withdraw assets
-  it('should fail to withdraw if not called by admin', async function() {
-    // Call the withdrawAsset function from a non-admin account and check for a revert
-    await expect(manager.connect(nonOwner).withdrawAsset()).to.be.revertedWith("Access denied");
-  });
+    // Internal Functions
+    function depositToCompound(uint256 _amount) internal returns (uint256) {
+        require(weth.approve(address(cWeth), _amount));
+        uint256 result = cWeth.mint(_amount);
+        return result;
+    }
 
-  // Test that non-admins cannot rebalance assets
-  it('should fail to rebalance if not called by admin', async function() {
-    const compoundRate = 3;
-    const aaveRate = 2;
+    function withdrawFromCompound() internal returns (uint256) {
+        uint256 balance = cWeth.balanceOf(address(this));
+        uint256 result = cWeth.redeem(balance);
+        return result;
+    }
 
-    // Call the rebalanceAsset function from a non-admin account and check for a revert
-    await expect(manager.connect(nonOwner).rebalanceAsset(compoundRate, aaveRate)).to.be.revertedWith("Access denied");
-  });
+    function depositToAave(uint256 _amount) internal {
+        require(weth.approve(address(pool), _amount));
+        pool.deposit(address(weth), _amount, address(this), 0);
+    }
 
-  // Test that deposits of 0 are not allowed
-  it('should fail to deposit if amount is 0', async function() {
-    const compoundRate = 3;
-    const aaveRate = 2;
+    function withdrawFromAave() internal {
+        uint256 balance = aWeth.balanceOf(address(this));
+        pool.withdraw(address(weth), balance, address(this));
+    }
 
-    // Call the depositAsset function with an amount of 0 and check for a revert
-    await expect(manager.connect(owner).depositAsset(0, compoundRate, aaveRate)).to.be.revertedWith("Amount must be greater than 0");
-  });
+    // View Functions
+    function contractBalance() public view returns (uint256) {
+        if (assetLocation == address(cWeth)) {
+            return cWeth.balanceOf(address(this));
+        } else {
+            return aWeth.balanceOf(address(this));
+        }
+    }
 
-  // Test that withdrawals cannot be made if there are no assets to withdraw
-  it('should fail to withdraw if there is nothing to withdraw', async function() {
-    // Call the withdrawAsset function when there are no assets and check for a revert
-    await expect(manager.connect(owner).withdrawAsset()).to.be.revertedWith("No assets to withdraw");
-  });
+    function assetStorageLocation() public view returns (address) {
+        return assetLocation;
+    }
+}
 
-  // Test that assets cannot be rebalanced if there are no assets to rebalance
-  it('should fail to rebalance if there are no assets', async function() {
-    const compoundRate = 3;
-    const aaveRate = 2;
-
-    // Call the rebalanceAsset function when there are no assets and check for a revert
-    await expect(manager.connect(owner).rebalanceAsset(compoundRate, aaveRate)).to.be.revertedWith("No assets to rebalance");
-  });
-});

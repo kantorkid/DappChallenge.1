@@ -1,129 +1,152 @@
-const AssetManager = artifacts.require('AssetManager');
-const WETH = artifacts.require('WETH');
-const CWETH = artifacts.require('CWETH');
-const AWETH = artifacts.require('AWETH');
-const LendingPool = artifacts.require('LendingPool');
+// Import the necessary libraries and modules
+const { ethers } = require("hardhat");
+const { expect } = require("chai");
 
-const { expect } = require('chai');
+// Describe the test suite
+describe('AssetManager', function() {
+  // Declare the variables we will use throughout the test
+  let AssetManager, WETH, CWETH, AWETH, LendingPool, owner, nonOwner, manager, weth, cWeth, aWeth, pool;
+  // Set the amount of tokens to be minted and approved
+  const amount = ethers.utils.parseEther("1");
 
-contract('AssetManager', function(accounts) {
-  let manager;
-  let weth;
-  let cWeth;
-  let aWeth;
-  let pool;
-
-  const owner = accounts[0];
-  const amount = web3.utils.toWei('1', 'ether');
-
+  // Run setup before each test
   beforeEach(async function() {
-    weth = await WETH.deployed();
-    cWeth = await CWETH.deployed();
-    aWeth = await AWETH.deployed();
-    pool = await LendingPool.deployed();
+    // Get list of signers
+    [owner, nonOwner, ...accounts] = await ethers.getSigners();
 
-    manager = await AssetManager.new(weth.address, cWeth.address, aWeth.address, pool.address, { from: owner });
+    // Get the contract factories for each contract
+    AssetManager = await ethers.getContractFactory('AssetManager');
+    WETH = await ethers.getContractFactory('WETH');
+    CWETH = await ethers.getContractFactory('CWETH');
+    AWETH = await ethers.getContractFactory('AWETH');
+    LendingPool = await ethers.getContractFactory('LendingPool');
 
-    await weth.mint(amount, { from: owner });
-    await weth.approve(manager.address, amount, { from: owner });
+    // Deploy each contract
+    weth = await WETH.deploy();
+    await weth.deployed();
+    
+    cWeth = await CWETH.deploy();
+    await cWeth.deployed();
+    
+    aWeth = await AWETH.deploy();
+    await aWeth.deployed();
+    
+    pool = await LendingPool.deploy();
+    await pool.deployed();
+
+    // Deploy the manager contract with the addresses of the other contracts as parameters
+    manager = await AssetManager.deploy(weth.address, cWeth.address, aWeth.address, pool.address);
+    await manager.deployed();
+
+    // Mint tokens and approve the manager to spend them
+    await weth.mint(owner.address, amount);
+    await weth.connect(owner).approve(manager.address, amount);
   });
 
+  // Test that assets can be deposited into Compound
   it('should deposit assets to Compound', async function() {
     const compoundRate = 3;
     const aaveRate = 2;
 
-    await manager.depositAsset(amount, compoundRate, aaveRate, { from: owner });
+    // Call the depositAsset function
+    await manager.connect(owner).depositAsset(amount, compoundRate, aaveRate);
 
+    // Check that the contract balance is correct
     const contractBalance = await manager.contractBalance();
-    expect(contractBalance.toString()).to.equal(amount);
+    expect(contractBalance).to.equal(amount);
   });
 
+  // Test that assets can be withdrawn from Compound
   it('should withdraw assets from Compound', async function() {
     const compoundRate = 3;
     const aaveRate = 2;
 
-    await manager.depositAsset(amount, compoundRate, aaveRate, { from: owner });
-    await manager.withdrawAsset({ from: owner });
+    // Call the depositAsset and withdrawAsset functions
+    await manager.connect(owner).depositAsset(amount, compoundRate, aaveRate);
+    await manager.connect(owner).withdrawAsset();
 
+    // Check that the contract balance is 0
     const contractBalance = await manager.contractBalance();
-    expect(contractBalance.toString()).to.equal('0');
+    expect(contractBalance).to.equal(0);
   });
 
-it('should rebalance from Compound to Aave', async function() {
-  const compoundRate1 = 3;
-  const aaveRate1 = 2;
-  const compoundRate2 = 2;
-  const aaveRate2 = 3;
+  // Test that assets can be rebalanced from Compound to Aave
+  it('should rebalance from Compound to Aave', async function() {
+    const compoundRate1 = 3;
+    const aaveRate1 = 2;
+    const compoundRate2 = 2;
+    const aaveRate2 = 3;
 
-  // First, deposit into Compound
-  await manager.depositAsset(amount, compoundRate1, aaveRate1, { from: owner });
+    // Call the depositAsset and rebalanceAsset functions
+    await manager.connect(owner).depositAsset(amount, compoundRate1, aaveRate1);
+    await manager.connect(owner).rebalanceAsset(compoundRate2, aaveRate2);
 
-  // Now, let's say Aave rates are better, so the assets should be rebalanced to Aave
-  await manager.rebalanceAsset(compoundRate2, aaveRate2, { from: owner });
+    // Check that the assets are stored in the correct location
+    const location = await manager.assetStorageLocation();
+    expect(location).to.equal(pool.address);
+  });
 
-  // Verify asset location
-  const location = await manager.assetStorageLocation();
-  expect(location).to.equal(pool.address);
-});
+  // Test that assets can be rebalanced from Aave to Compound
+  it('should rebalance from Aave to Compound', async function() {
+    const compoundRate1 = 2;
+    const aaveRate1 = 3;
+    const compoundRate2 = 3;
+    const aaveRate2 = 2;
 
-it('should rebalance from Aave to Compound', async function() {
-  const compoundRate1 = 2;
-  const aaveRate1 = 3;
-  const compoundRate2 = 3;
-  const aaveRate2 = 2;
+    // Call the depositAsset and rebalanceAsset functions
+    await manager.connect(owner).depositAsset(amount, compoundRate1, aaveRate1);
+    await manager.connect(owner).rebalanceAsset(compoundRate2, aaveRate2);
 
-  // First, deposit into Aave
-  await manager.depositAsset(amount, compoundRate1, aaveRate1, { from: owner });
+    // Check that the assets are stored in the correct location
+    const location = await manager.assetStorageLocation();
+    expect(location).to.equal(cWeth.address);
+  });
 
-  // Now, let's say Compound rates are better, so the assets should be rebalanced to Compound
-  await manager.rebalanceAsset(compoundRate2, aaveRate2, { from: owner });
+  // Test that non-admins cannot deposit assets
+  it('should fail to deposit if not called by admin', async function() {
+    const compoundRate = 3;
+    const aaveRate = 2;
 
-  // Verify asset location
-  const location = await manager.assetStorageLocation();
-  expect(location).to.equal(cWeth.address);
-});
+    // Call the depositAsset function from a non-admin account and check for a revert
+    await expect(manager.connect(nonOwner).depositAsset(amount, compoundRate, aaveRate)).to.be.revertedWith("Access denied");
+  });
 
-it('should fail to deposit if not called by admin', async function() {
-  const compoundRate = 3;
-  const aaveRate = 2;
+  // Test that non-admins cannot withdraw assets
+  it('should fail to withdraw if not called by admin', async function() {
+    // Call the withdrawAsset function from a non-admin account and check for a revert
+    await expect(manager.connect(nonOwner).withdrawAsset()).to.be.revertedWith("Access denied");
+  });
 
-  // Attempt to deposit from an account that's not the admin
-  await expectRevert(manager.depositAsset(amount, compoundRate, aaveRate, { from: nonOwner }), "Access denied");
-});
+  // Test that non-admins cannot rebalance assets
+  it('should fail to rebalance if not called by admin', async function() {
+    const compoundRate = 3;
+    const aaveRate = 2;
 
-it('should fail to withdraw if not called by admin', async function() {
-  // Attempt to withdraw from an account that's not the admin
-  await expectRevert(manager.withdrawAsset({ from: nonOwner }), "Access denied");
-});
+    // Call the rebalanceAsset function from a non-admin account and check for a revert
+    await expect(manager.connect(nonOwner).rebalanceAsset(compoundRate, aaveRate)).to.be.revertedWith("Access denied");
+  });
 
-it('should fail to rebalance if not called by admin', async function() {
-  const compoundRate = 3;
-  const aaveRate = 2;
+  // Test that deposits of 0 are not allowed
+  it('should fail to deposit if amount is 0', async function() {
+    const compoundRate = 3;
+    const aaveRate = 2;
 
-  // Attempt to rebalance from an account that's not the admin
-  await expectRevert(manager.rebalanceAsset(compoundRate, aaveRate, { from: nonOwner }), "Access denied");
-});
+    // Call the depositAsset function with an amount of 0 and check for a revert
+    await expect(manager.connect(owner).depositAsset(0, compoundRate, aaveRate)).to.be.revertedWith("Amount must be greater than 0");
+  });
 
-it('should fail to deposit if amount is 0', async function() {
-  const compoundRate = 3;
-  const aaveRate = 2;
+  // Test that withdrawals cannot be made if there are no assets to withdraw
+  it('should fail to withdraw if there is nothing to withdraw', async function() {
+    // Call the withdrawAsset function when there are no assets and check for a revert
+    await expect(manager.connect(owner).withdrawAsset()).to.be.revertedWith("No assets to withdraw");
+  });
 
-  // Attempt to deposit 0
-  await expectRevert(manager.depositAsset(0, compoundRate, aaveRate, { from: owner }), "Amount must be greater than 0");
-});
+  // Test that assets cannot be rebalanced if there are no assets to rebalance
+  it('should fail to rebalance if there are no assets', async function() {
+    const compoundRate = 3;
+    const aaveRate = 2;
 
-it('should fail to withdraw if there is nothing to withdraw', async function() {
-  // Attempt to withdraw when there are no assets
-  await expectRevert(manager.withdrawAsset({ from: owner }), "No assets to withdraw");
-});
-
-it('should fail to rebalance if there are no assets', async function() {
-  const compoundRate = 3;
-  const aaveRate = 2;
-
-  // Attempt to rebalance when there are no assets
-  await expectRevert(manager.rebalanceAsset(compoundRate, aaveRate, { from: owner }), "No assets to rebalance");
-});
-
-
+    // Call the rebalanceAsset function when there are no assets and check for a revert
+    await expect(manager.connect(owner).rebalanceAsset(compoundRate, aaveRate)).to.be.revertedWith("No assets to rebalance");
+  });
 });
