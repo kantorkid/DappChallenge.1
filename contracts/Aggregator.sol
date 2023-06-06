@@ -1,6 +1,6 @@
-pragma solidity ^0.5.16;
+pragma solidity 0.8.4;
 
-import "openzeppelin-solidity/contracts/math/SafeMath.sol";
+
 
 // Interface for ERC20 WETH contract
 interface WETH {
@@ -66,7 +66,7 @@ interface AaveLendingPool {
 }
 
 contract Aggregator {
-    using SafeMath for uint256;
+  
 
     // Variables
     string public name = "Yield Aggregator";
@@ -115,7 +115,7 @@ AaveLendingPool aaveLendingPool = AaveLendingPool(0x7d2768dE32b0b80b7a3454c06BdA
         }
 
         weth.transferFrom(msg.sender, address(this), _amount);
-        amountDeposited = amountDeposited.add(_amount);
+        amountDeposited = amountDeposited + _amount;
 
         // Compare interest rates
         if (_compAPY > _aaveAPY) {
