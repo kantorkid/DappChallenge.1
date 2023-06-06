@@ -1,45 +1,33 @@
-// Import the necessary libraries and modules
-const { ethers } = require("hardhat");
 const { expect } = require("chai");
+const { ethers } = require("hardhat");
 
-// Describe the test suite
 describe('AssetManager', function() {
-  // Declare the variables we will use throughout the test
-  let AssetManager, WETH, CWETH, AWETH, LendingPool, owner, nonOwner, manager, weth, cWeth, aWeth, pool;
-  // Set the amount of tokens to be minted and approved
-  const amount = ethers.utils.parseEther("1");
+  let manager;
+  let weth;
+  let cWeth;
+  let aWeth;
+  let pool;
+  let owner;
+  let nonOwner;
+  const amount = ethers.utils.parseEther('1'); // Converting 1 ether to Wei using ethers.js instead of web3.js
 
-  // Run setup before each test
   beforeEach(async function() {
-    // Get list of signers
-    [owner, nonOwner, ...accounts] = await ethers.getSigners();
+    const AssetManager = await ethers.getContractFactory('AssetManager');
+    const WETH = await ethers.getContractFactory('WETH');
+    const CWETH = await ethers.getContractFactory('CWETH');
+    const AWETH = await ethers.getContractFactory('AWETH');
+    const LendingPool = await ethers.getContractFactory('LendingPool');
 
-    // Get the contract factories for each contract
-    AssetManager = await ethers.getContractFactory('AssetManager');
-    WETH = await ethers.getContractFactory('WETH');
-    CWETH = await ethers.getContractFactory('CWETH');
-    AWETH = await ethers.getContractFactory('AWETH');
-    LendingPool = await ethers.getContractFactory('LendingPool');
+    [owner, nonOwner, ...rest] = await ethers.getSigners();
 
-    // Deploy each contract
     weth = await WETH.deploy();
-    await weth.deployed();
-    
     cWeth = await CWETH.deploy();
-    await cWeth.deployed();
-    
     aWeth = await AWETH.deploy();
-    await aWeth.deployed();
-    
     pool = await LendingPool.deploy();
-    await pool.deployed();
 
-    // Deploy the manager contract with the addresses of the other contracts as parameters
     manager = await AssetManager.deploy(weth.address, cWeth.address, aWeth.address, pool.address);
-    await manager.deployed();
-
-    // Mint tokens and approve the manager to spend them
-    await weth.mint(owner.address, amount);
+    
+    await weth.connect(owner).mint(amount);
     await weth.connect(owner).approve(manager.address, amount);
   });
 

@@ -1,6 +1,6 @@
 const Aggregator = artifacts.require("./Aggregator")
-const daiABI = require("../mint-dai/dai-abi.json")
-const cDAI_ABI = require("../src/helpers/cDai-abi.json")
+const wethABI = require("../mint-weth/weth-abi.json")
+const cWETH_ABI = require("../src/helpers/cWeth-abi.json")
 const AAVE_ABI = require("../src/helpers/aaveLendingPool-abi.json")
 const getAPY = require("../src/helpers/calculateAPY")
 
@@ -8,16 +8,16 @@ require('chai')
     .use(require('chai-as-promised'))
     .should()
 
-const DAI = '0x6b175474e89094c44da98b954eedeac495271d0f' // ERC20 DAI Address
-const cDAI = '0x5d3a536e4d6dbd6114cc1ead35777bab948e3643' // Compound's cDAI Address
+const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' // ERC20 WETH Address
+const cWETH = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5' // Compound's cWETH Address
 const aaveLendingPool = '0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9' // Aave's Lending Pool Contract
 
 const EVM_REVERT = 'VM Exception while processing transaction: revert'
 
 contract('Aggregator', ([deployer, user2]) => {
 
-    const daiContract = new web3.eth.Contract(daiABI, DAI)
-    const cDAI_contract = new web3.eth.Contract(cDAI_ABI, cDAI)
+    const wethContract = new web3.eth.Contract(wethABI, WETH)
+    const cWETH_contract = new web3.eth.Contract(cWETH_ABI, cWETH)
     const aaveLendingPool_contract = new web3.eth.Contract(AAVE_ABI, aaveLendingPool)
 
     let aggregator
@@ -38,7 +38,7 @@ contract('Aggregator', ([deployer, user2]) => {
     describe('exchange rates', async () => {
 
         it('fetches compound exchange rate', async () => {
-            let result = await getAPY.getCompoundAPY(cDAI_contract)
+            let result = await getAPY.getCompoundAPY(cWETH_contract)
             console.log(result.toString())
             result.should.not.equal(0)
         })
